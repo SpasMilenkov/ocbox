@@ -1,0 +1,134 @@
+# ocbox configuration. Everything tunable lives here. See README.md.
+
+[project]
+# Default project directory (relative paths are relative to this file).
+# Leave empty and pass the path on the command line instead:  ocbox.py run ../myproject
+path = ""
+
+[opencode]
+# OpenCode 2.x, installed from npm WITHOUT running npm: `ocbox build` downloads the platform
+# package tarball itself (@opencode/cli-linux-x64 etc.), verifies npm's sha512 integrity against
+# the registry AND the value pinned in ocbox.lock, rejects tarballs with unexpected contents,
+# extracts the single binary, and never executes any npm install script on your host.
+# Use an EXACT version (never a tag like "latest", "beta" or "dev").
+# 2.0.32 was published 2026-10-16; its three Linux integrity values are pre-seeded in ocbox.lock.
+package = "@opencode/cli"
+version = "2.0.32"
+# x86_64 only: "auto" picks "baseline" when your CPU lacks AVX2 (same rule as OpenCode's own
+# installer); force "standard" or "baseline" if you like.
+variant = "auto"
+
+[tools]
+# Tag of mcr.microsoft.com/dotnet/sdk to build on. Set it yourself, e.g. "10.0" (newest 10.0.x),
+# or an exact build such as "10.0.100" ("10.0.0" does NOT exist as a tag). "auto" tries to derive
+# it from sdk.version in <project>/<global_json>, but setting it explicitly is more predictable.
+dotnet_sdk  = "auto"
+global_json = ""
+# Node: a major ("24" = newest 22.x at build time) or an exact version ("24.15.0").
+# Match your project's .nvmrc / package.json "engines".
+node        = "24.15.0"
+# pnpm: a major ("10") or exact version.
+pnpm        = "11.22.0"         
+# Extra Debian packages (the image gets big: LibreOffice alone is ~700 MB).
+# ffmpeg / poppler-utils / LibreOffice are what the project's dev mode shells out to.
+apt_extra   = [
+]
+
+[limits]
+memory   = "8g"     # dotnet + node together are hungry; raise if you see OOM kills
+cpus     = "4"
+pids     = 2048     # threads count as pids; 256 breaks dotnet/node builds
+tmp_size = "2g"     # /tmp is RAM-backed and counts against the memory limit
+
+[network]
+# Private network for the agent: NO route to the internet. Pick a range that does
+# not collide with your existing podman/docker networks or LAN.
+subnet   = "10.201.77.0/24"
+proxy_ip = "10.201.77.2"
+# Already-running PODMAN containers to connect to the agent network for each session,
+# as "container-name" or "container-name:alias". Your stack runs under Docker, so leave
+# this empty and use [services] below instead.
+attach   = []
+
+# Services that publish ports on the HOST (Docker, Portainer, anything). A tiny bridge
+# container relays ONLY these ports to the same port on the host. Inside the sandbox they
+# are reachable as localhost:PORT (so your dev-mode appsettings work unchanged) and by name.
+# The agent gets full access to these services: use throwaway dev data.
+[services]
+host      = "host.containers.internal"   # how the bridge reaches your host (see README)
+bridge_ip = "10.201.77.3"                # must be inside [network].subnet
+[services.ports]                         # name = [host published ports]; each >= 1024
+# postgres = [5432]
+# 
+# Egress allowlist profiles (HTTPS only). "base" is always on. Add others per
+# session with `--allow nuget,npm`, or permanently via [run].default_profiles.
+# ".example.com" = domain + subdomains, "example.com" = exact host.
+# These are best guesses; `ocbox.py run --learn` shows what is really contacted.
+[allow]
+base   = [".opencode.ai", "models.dev"]   # .opencode.ai covers models.opencode.ai
+nuget  = [".nuget.org"]
+npm    = ["registry.npmjs.org"]
+pypi   = ["pypi.org", "files.pythonhosted.org"]
+github = ["github.com", ".githubusercontent.com"]
+
+[run]
+default_profiles = []
+# Names of host environment variables to pass into the container (values are
+# taken from your shell at launch). Keep this empty unless you need it.
+pass_env  = []
+git_name  = "ocbox-agent"
+git_email = "ocbox-agent@localhost"
+
+[scan]
+# Directories never walked when looking for secrets / package roots.
+skip_dirs = [
+  ".git", "node_modules", "bin", "obj", ".venv", "venv", "__pycache__",
+  "dist", "dev-dist", ".astro", ".vite", ".cache", "playwright-report",
+  "test-results", "coverage", ".vs", ".idea",
+]
+
+[hide]
+# These are invisible inside the sandbox (empty dir / empty file). The free
+# OpenCode models run on THEIR servers, so anything the agent can read may be
+# sent to them: hide everything you would not paste into a public chat.
+paths = [
+  "rabbitmq/definitions.json",
+  "rabbitmq/rabbitmq.conf",
+]
+# Found anywhere in the project (matched against file names):
+globs = [
+  ".env", ".env.*", "*.pem", "*.key", "*.pfx", "*.p12", "*.keystore",
+  "id_rsa*", "id_ed25519*", "*.kdbx", "*credentials*.env", "credentials.json",
+  "*.secret", "*.secrets", "secrets.json", "secrets.*.json", ".netrc",
+]
+except_globs = ["*.example", "*.template", "*.sample", "*.dist", "*.tmpl"]
+# Visible but READ-ONLY inside the sandbox (so a rogue agent cannot plant things
+# that would run on your host later: git hooks, git config fsmonitor/aliases, or
+# a poisoned OpenCode config).
+readonly = [".git/hooks", ".git/config", "opencode.jsonc"]
+
+[backup]
+keep        = 20           # snapshots kept per project
+max_file_mb = 50           # bigger files are skipped (and listed)
+# Directory NAMES skipped at any depth (regenerable output):
+exclude_dirs = [
+  "node_modules", "bin", "obj", ".venv", "venv", "__pycache__", "dist",
+  "dev-dist", ".astro", ".vite", ".cache", "playwright-report", "test-results",
+  "coverage", ".vs", ".idea",
+]
+# Project-relative paths skipped (huge or sensitive and never touched by the agent):
+exclude_paths = ["data", "backups", "output", "misc/output"]
+
+[review]
+# After a session, changed files matching these are flagged: they run on YOUR
+# machine when you build, start or commit. Review them before doing anything.
+patterns = [
+  ".git/hooks/*", ".git/config", ".gitmodules", ".gitattributes",
+  "opencode.jsonc", "opencode.json", ".opencode/*", "AGENTS.md",
+  ".github/*", ".vscode/*", ".devcontainer/*", ".husky/*", ".githooks/*",
+  ".envrc", ".npmrc", ".yarnrc*", "pnpm-workspace.yaml", "package.json",
+  "Makefile", "justfile", "*.sh", "*.ps1", "*.bat", "*.cmd",
+  "Dockerfile*", "docker-compose*.yml", "docker-compose*.yaml",
+  "*.csproj", "*.fsproj", "*.props", "*.targets", "nuget.config",
+  "global.json", "Directory.Build.*", "nginx/*",
+]
