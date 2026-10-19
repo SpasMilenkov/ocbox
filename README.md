@@ -1,5 +1,8 @@
 # ocbox
 
+### Made to be used by my for my specific workflows, but you can ask Claude to patch it up to fit yours if you so wish. This is more of a repo for me to keep track of changes and sync between devices more than  anything.
+
+
 Run the [OpenCode](https://opencode.ai) agent in a locked-down, **rootless Podman** sandbox
 instead of directly on your machine. Built for the case where you use hosted models but do not
 fully trust the vendor's infrastructure or release pipeline.
